@@ -3,10 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const googleTasks = require('./google-tasks');
 
-// 하드웨어 가속 비활성화 (30초 지연 및 GPU 충돌 해결의 핵심)
-app.disableHardwareAcceleration();
-
 let mainWindow;
+let splashWindow;
 let tray;
 
 const WINDOW_STATE_PATH = path.join(app.getPath('userData'), 'window-state.json');
@@ -23,6 +21,24 @@ function loadWindowState() {
     return state;
 }
 
+function createSplashScreen() {
+    splashWindow = new BrowserWindow({
+        width: 300,
+        height: 400,
+        frame: false,
+        transparent: true,
+        backgroundColor: '#00000000',
+        alwaysOnTop: true,
+        center: true,
+        icon: path.join(__dirname, 'icon.ico'),
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+        }
+    });
+    splashWindow.loadFile('splash.html');
+}
+
 function saveWindowState() {
     if (!mainWindow) return;
     const bounds = mainWindow.getBounds();
@@ -30,6 +46,8 @@ function saveWindowState() {
 }
 
 function createWindow() {
+    createSplashScreen();
+
     const state = loadWindowState();
 
     mainWindow = new BrowserWindow({
@@ -51,8 +69,11 @@ function createWindow() {
         }
     });
 
-    // 창이 준비되면 즉시 표시 (30초 지연 방지)
+    // 창이 준비되면 스플래시를 닫고 메인 창 표시
     mainWindow.once('ready-to-show', () => {
+        if (splashWindow && !splashWindow.isDestroyed()) {
+            splashWindow.close();
+        }
         mainWindow.show();
     });
 

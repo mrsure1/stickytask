@@ -25,7 +25,6 @@
       "**/*",
       "!dist/*",
       "!node_modules/*",
-      "node_modules/googleapis/**/*",
       "node_modules/electron-store/**/*"
     ]
   },
