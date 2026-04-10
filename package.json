@@ -1,0 +1,46 @@
+{
+  "name": "stickytask",
+  "version": "1.0.0",
+  "description": "Premium Google Tasks Sticky Note for Desktop",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-packager . StickyTask --platform=win32 --arch=x64 --out=dist --overwrite --icon=icon.ico",
+    "build": "electron-builder",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "build": {
+    "appId": "com.mrsure.stickytask",
+    "productName": "StickyTask",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "icon": "icon.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "files": [
+      "**/*",
+      "!dist/*",
+      "!node_modules/*",
+      "node_modules/googleapis/**/*",
+      "node_modules/electron-store/**/*"
+    ]
+  },
+  "keywords": [],
+  "author": "MrSure",
+  "license": "ISC",
+  "dependencies": {
+    "electron-store": "^8.2.0",
+    "googleapis": "^144.0.0"
+  },
+  "devDependencies": {
+    "electron": "^41.1.1",
+    "electron-builder": "^26.8.1",
+    "electron-packager": "^17.1.2",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5"
+  }
+}
