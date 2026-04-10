@@ -1,7 +1,10 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const googleTasks = require('./google-tasks');
+
+// 하드웨어 가속 비활성화 (30초 지연 및 GPU 충돌 해결의 핵심)
+app.disableHardwareAcceleration();
 
 let mainWindow;
 let tray;
@@ -16,20 +19,7 @@ function loadWindowState() {
         }
     } catch (e) {}
 
-    // 창 위치가 화면 밖으로 나갔는지 확인하여 보정
-    if (state.x !== undefined && state.y !== undefined) {
-        const displays = screen.getAllDisplays();
-        const isVisible = displays.some(display => {
-            return state.x >= display.bounds.x &&
-                   state.y >= display.bounds.y &&
-                   state.x < (display.bounds.x + display.bounds.width) &&
-                   state.y < (display.bounds.y + display.bounds.height);
-        });
-        if (!isVisible) {
-            state.x = undefined;
-            state.y = undefined;
-        }
-    }
+    // 디스플레이 조회가 성능을 저하시킬 수 있으므로 단순화함
     return state;
 }
 
