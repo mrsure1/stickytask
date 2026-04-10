@@ -65,7 +65,6 @@ opacitySlider.addEventListener('input', (e) => {
     store.set('opacity', opacity);
 });
 
-let googleTasks = [];
 
 // 창 제어
 closeBtn.addEventListener('click', () => ipcRenderer.send('close-app'));

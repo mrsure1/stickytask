@@ -3,4 +3,4 @@ dist/
 token.json
 *.log
 .DS_Store
-# credentials.json # 보안을 위해 제외하는 것을 권장하지만, 포함하고 싶다면 이 줄을 주석 처리하세요.
+credentials.json
