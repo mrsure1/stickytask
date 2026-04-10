@@ -1,12 +1,7 @@
 const { app, BrowserWindow, ipcMain, Tray, Menu, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
-// googleTasks는 필요할 때 지연 로딩합니다.
-let googleTasks;
-function getTasksHandler() {
-    if (!googleTasks) googleTasks = require('./google-tasks');
-    return googleTasks;
-}
+const googleTasks = require('./google-tasks');
 
 let mainWindow;
 let tray;
@@ -86,19 +81,16 @@ function createWindow() {
     
     // 비동기 데이터 로딩은 창이 뜨고 나서 진행
     mainWindow.webContents.on('did-finish-load', async () => {
-        setTimeout(async () => {
-            try {
-                const handler = getTasksHandler();
-                const isLoggedIn = await handler.initialize();
-                mainWindow.webContents.send('auth-status', isLoggedIn);
-                if (isLoggedIn) {
-                    const tasks = await handler.listTasks();
-                    mainWindow.webContents.send('tasks-data', tasks);
-                }
-            } catch (e) {
-                console.error('데이터 초기 로딩 오류:', e);
+        try {
+            const isLoggedIn = await googleTasks.initialize();
+            mainWindow.webContents.send('auth-status', isLoggedIn);
+            if (isLoggedIn) {
+                const tasks = await googleTasks.listTasks();
+                mainWindow.webContents.send('tasks-data', tasks);
             }
-        }, 100);
+        } catch (e) {
+            console.error('데이터 초기 로딩 오류:', e);
+        }
     });
 
     mainWindow.on('close', saveWindowState);
@@ -113,10 +105,9 @@ app.on('window-all-closed', () => {
 // IPC 핸들러: 로그인 요청
 ipcMain.on('google-login', async (event) => {
     try {
-        const handler = getTasksHandler();
-        const success = await handler.authenticate();
+        const success = await googleTasks.authenticate();
         if (success) {
-            const tasks = await handler.listTasks();
+            const tasks = await googleTasks.listTasks();
             event.sender.send('auth-status', true);
             event.sender.send('tasks-data', tasks);
         }
@@ -128,19 +119,19 @@ ipcMain.on('google-login', async (event) => {
 
 // IPC 핸들러: 태스크 관리
 ipcMain.handle('get-tasks', async () => {
-    return await getTasksHandler().listTasks();
+    return await googleTasks.listTasks();
 });
 
 ipcMain.handle('add-task', async (event, title) => {
-    return await getTasksHandler().addTask(title);
+    return await googleTasks.addTask(title);
 });
 
 ipcMain.handle('update-task', async (event, { taskId, completed }) => {
-    return await getTasksHandler().updateTask(taskId, completed);
+    return await googleTasks.updateTask(taskId, completed);
 });
 
 ipcMain.handle('delete-task', async (event, taskId) => {
-    return await getTasksHandler().deleteTask(taskId);
+    return await googleTasks.deleteTask(taskId);
 });
 
 ipcMain.on('close-app', () => {

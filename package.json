@@ -33,8 +33,7 @@
   "author": "MrSure",
   "license": "ISC",
   "dependencies": {
-    "electron-store": "^8.2.0",
-    "googleapis": "^144.0.0"
+    "electron-store": "^8.2.0"
   },
   "devDependencies": {
     "electron": "^41.1.1",

@@ -1,139 +1,196 @@
-const { google } = require('googleapis');
 const { app, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
 const url = require('url');
+const querystring = require('querystring');
 
-const SCOPES = ['https://www.googleapis.com/auth/tasks'];
 const TOKEN_PATH = path.join(app.getPath('userData'), 'token.json');
 const CREDENTIALS_PATH = path.join(__dirname, 'credentials.json');
-const PORT = 3000; // 리다이렉트를 수신할 로컬 포트
+const PORT = 3000;
 
 class GoogleTasksHandler {
     constructor() {
-        this.oAuth2Client = null;
+        this.clientConfig = null;
+        this.tokens = null;
         this.server = null;
     }
 
     /**
-     * 초기화: credentials.json을 로드하고 oAuth2Client를 생성합니다.
+     * 기본 https 요청 헬퍼
      */
+    async _request(options, postData = null) {
+        return new Promise((resolve, reject) => {
+            const req = https.request(options, (res) => {
+                let data = '';
+                res.on('data', (chunk) => { data += chunk; });
+                res.on('end', () => {
+                    if (res.statusCode >= 200 && res.statusCode < 300) {
+                        resolve(data ? JSON.parse(data) : {});
+                    } else {
+                        reject(new Error(`API Error (${res.statusCode}): ${data}`));
+                    }
+                });
+            });
+            req.on('error', (e) => reject(e));
+            if (postData) {
+                req.write(typeof postData === 'string' ? postData : JSON.stringify(postData));
+            }
+            req.end();
+        });
+    }
+
     async initialize() {
         try {
             if (!fs.existsSync(CREDENTIALS_PATH)) return false;
-
             const content = fs.readFileSync(CREDENTIALS_PATH, 'utf8');
             const credentials = JSON.parse(content);
-            const key = credentials.installed || credentials.web;
-            
-            this.oAuth2Client = new google.auth.OAuth2(
-                key.client_id, 
-                key.client_secret, 
-                `http://localhost:${PORT}`
-            );
+            this.clientConfig = credentials.installed || credentials.web;
 
             if (fs.existsSync(TOKEN_PATH)) {
-                const token = fs.readFileSync(TOKEN_PATH, 'utf8');
-                this.oAuth2Client.setCredentials(JSON.parse(token));
+                this.tokens = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf8'));
+                // 만료 체크 후 갱신 로직 필요 (여기서는 단순 로드)
                 return true;
             }
         } catch (error) {
-            console.error('초기화 오류:', error);
+            console.error('GoogleTasks 초기화 실패:', error);
         }
         return false;
     }
 
     /**
-     * 로그인 프로세스 시작: 웹 서버를 열고 브라우저를 띄웁니다.
+     * 액세스 토큰 갱신
      */
+    async refreshToken() {
+        if (!this.tokens || !this.tokens.refresh_token) return;
+
+        const postData = querystring.stringify({
+            client_id: this.clientConfig.client_id,
+            client_secret: this.clientConfig.client_secret,
+            refresh_token: this.tokens.refresh_token,
+            grant_type: 'refresh_token',
+        });
+
+        const options = {
+            hostname: 'oauth2.googleapis.com',
+            path: '/token',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': postData.length
+            }
+        };
+
+        const newTokens = await this._request(options, postData);
+        this.tokens = { ...this.tokens, ...newTokens };
+        fs.writeFileSync(TOKEN_PATH, JSON.stringify(this.tokens));
+    }
+
     async authenticate() {
         return new Promise((resolve, reject) => {
-            if (!this.oAuth2Client) {
-                return reject(new Error('credentials.json 파일이 설정되지 않았습니다.'));
-            }
+            const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + 
+                querystring.stringify({
+                    client_id: this.clientConfig.client_id,
+                    redirect_uri: `http://localhost:${PORT}`,
+                    response_type: 'code',
+                    scope: 'https://www.googleapis.com/auth/tasks',
+                    access_type: 'offline',
+                    prompt: 'consent'
+                });
 
-            const authUrl = this.oAuth2Client.generateAuthUrl({
-                access_type: 'offline',
-                scope: SCOPES,
-            });
-
-            // 인증 서버 중복 실행 방지
             if (this.server) this.server.close();
 
             this.server = http.createServer(async (req, res) => {
                 try {
-                    if (req.url.indexOf('/?') > -1) {
-                        const qs = new url.URL(req.url, `http://localhost:${PORT}`).searchParams;
-                        const code = qs.get('code');
-                        
+                    const parsedUrl = url.parse(req.url, true);
+                    const code = parsedUrl.query.code;
+
+                    if (code) {
                         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-                        res.end('<h1>인증되었습니다!</h1><p>이제 이 창을 닫고 앱으로 돌아가셔도 됩니다.</p>');
+                        res.end('<h1>인증되었습니다!</h1><p>앱으로 돌아가셔도 됩니다.</p>');
                         this.server.close();
-                        
-                        const { tokens } = await this.oAuth2Client.getToken(code);
-                        this.oAuth2Client.setCredentials(tokens);
-                        fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens));
-                        
+
+                        const postData = querystring.stringify({
+                            client_id: this.clientConfig.client_id,
+                            client_secret: this.clientConfig.client_secret,
+                            code: code,
+                            redirect_uri: `http://localhost:${PORT}`,
+                            grant_type: 'authorization_code'
+                        });
+
+                        const options = {
+                            hostname: 'oauth2.googleapis.com',
+                            path: '/token',
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'Content-Length': postData.length
+                            }
+                        };
+
+                        this.tokens = await this._request(options, postData);
+                        fs.writeFileSync(TOKEN_PATH, JSON.stringify(this.tokens));
                         resolve(true);
                     }
                 } catch (e) {
                     reject(e);
                 }
             }).listen(PORT, () => {
-                shell.openExternal(authUrl); // 브라우저 열기
+                shell.openExternal(authUrl);
             });
         });
     }
 
     /**
-     * 태스크 목록 조회
+     * REST API 호출 (공통 인증 헤더 포함)
      */
+    async _get(path) {
+        try {
+            return await this._call('GET', path);
+        } catch (e) {
+            // 토큰 만료 시 1회 갱신 시도
+            await this.refreshToken();
+            return await this._call('GET', path);
+        }
+    }
+
+    async _call(method, path, body = null) {
+        if (!this.tokens) throw new Error('인증되지 않음');
+        
+        const options = {
+            hostname: 'tasks.googleapis.com',
+            path: `/tasks/v1${path}`,
+            method: method,
+            headers: {
+                'Authorization': `Bearer ${this.tokens.access_token}`,
+                'Accept': 'application/json'
+            }
+        };
+
+        if (body) {
+            options.headers['Content-Type'] = 'application/json';
+        }
+
+        return await this._request(options, body);
+    }
+
     async listTasks() {
-        if (!this.oAuth2Client) return [];
-        const service = google.tasks({ version: 'v1', auth: this.oAuth2Client });
-        const res = await service.tasks.list({ tasklist: '@default' });
-        return res.data.items || [];
+        const data = await this._get('/lists/@default/tasks');
+        return data.items || [];
     }
 
-    /**
-     * 태스크 추가
-     */
     async addTask(title) {
-        if (!this.oAuth2Client) return null;
-        const service = google.tasks({ version: 'v1', auth: this.oAuth2Client });
-        const res = await service.tasks.insert({
-            tasklist: '@default',
-            requestBody: { title }
-        });
-        return res.data;
+        return await this._call('POST', '/lists/@default/tasks', { title });
     }
 
-    /**
-     * 태스크 상태 업데이트
-     */
     async updateTask(taskId, completed) {
-        if (!this.oAuth2Client) return null;
-        const service = google.tasks({ version: 'v1', auth: this.oAuth2Client });
         const status = completed ? 'completed' : 'needsAction';
-        const res = await service.tasks.patch({
-            tasklist: '@default',
-            task: taskId,
-            requestBody: { status }
-        });
-        return res.data;
+        return await this._call('PATCH', `/lists/@default/tasks/${taskId}`, { status });
     }
 
-    /**
-     * 태스크 삭제
-     */
     async deleteTask(taskId) {
-        if (!this.oAuth2Client) return null;
-        const service = google.tasks({ version: 'v1', auth: this.oAuth2Client });
-        await service.tasks.delete({
-            tasklist: '@default',
-            task: taskId
-        });
+        await this._call('DELETE', `/lists/@default/tasks/${taskId}`);
         return true;
     }
 }
