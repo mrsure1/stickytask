@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const googleTasks = require('./google-tasks');
@@ -9,12 +9,28 @@ let tray;
 const WINDOW_STATE_PATH = path.join(app.getPath('userData'), 'window-state.json');
 
 function loadWindowState() {
+    let state = { width: 350, height: 450, x: undefined, y: undefined };
     try {
         if (fs.existsSync(WINDOW_STATE_PATH)) {
-            return JSON.parse(fs.readFileSync(WINDOW_STATE_PATH, 'utf8'));
+            state = JSON.parse(fs.readFileSync(WINDOW_STATE_PATH, 'utf8'));
         }
     } catch (e) {}
-    return { width: 350, height: 450, x: undefined, y: undefined };
+
+    // 창 위치가 화면 밖으로 나갔는지 확인하여 보정
+    if (state.x !== undefined && state.y !== undefined) {
+        const displays = screen.getAllDisplays();
+        const isVisible = displays.some(display => {
+            return state.x >= display.bounds.x &&
+                   state.y >= display.bounds.y &&
+                   state.x < (display.bounds.x + display.bounds.width) &&
+                   state.y < (display.bounds.y + display.bounds.height);
+        });
+        if (!isVisible) {
+            state.x = undefined;
+            state.y = undefined;
+        }
+    }
+    return state;
 }
 
 function saveWindowState() {
@@ -35,6 +51,7 @@ function createWindow() {
         minHeight: 200,
         frame: false,
         transparent: true,
+        backgroundColor: '#00000000', // 투명도 안정성 확보
         alwaysOnTop: true,
         icon: path.join(__dirname, 'icon.ico'),
         webPreferences: {
@@ -47,6 +64,8 @@ function createWindow() {
     tray = new Tray(path.join(__dirname, 'icon.ico'));
     const contextMenu = Menu.buildFromTemplate([
         { label: 'StickyTask 보이기', click: () => mainWindow.show() },
+        { label: '개발자 도구 열기', click: () => mainWindow.webContents.openDevTools({ mode: 'detach' }) },
+        { type: 'separator' },
         { label: '종료', click: () => app.quit() }
     ]);
     tray.setToolTip('StickyTask - Google Tasks 연동');

@@ -22,10 +22,11 @@ function loadSettings() {
     const bgColor = store.get('bg-color', '#fff176');
     const headerColor = store.get('header-color', '#fdd835');
     const opacity = store.get('opacity', 1.0);
+    const safeOpacity = Math.max(0.2, opacity);
 
     document.documentElement.style.setProperty('--sticky-bg', bgColor);
     document.documentElement.style.setProperty('--sticky-header', headerColor);
-    document.documentElement.style.setProperty('--sticky-opacity', opacity);
+    document.documentElement.style.setProperty('--sticky-opacity', safeOpacity);
     opacitySlider.value = opacity;
 
     // 활성 색상 표시
@@ -60,8 +61,9 @@ colorDots.forEach(dot => {
 
 // 투명도 변경
 opacitySlider.addEventListener('input', (e) => {
-    const opacity = e.target.value;
-    document.documentElement.style.setProperty('--sticky-opacity', opacity);
+    const opacity = parseFloat(e.target.value);
+    const safeOpacity = Math.max(0.2, opacity);
+    document.documentElement.style.setProperty('--sticky-opacity', safeOpacity);
     store.set('opacity', opacity);
 });
 
