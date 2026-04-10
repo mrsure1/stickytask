@@ -1,7 +1,12 @@
 const { app, BrowserWindow, ipcMain, Tray, Menu, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const googleTasks = require('./google-tasks');
+// googleTasks는 필요할 때 지연 로딩합니다.
+let googleTasks;
+function getTasksHandler() {
+    if (!googleTasks) googleTasks = require('./google-tasks');
+    return googleTasks;
+}
 
 let mainWindow;
 let tray;
@@ -51,8 +56,9 @@ function createWindow() {
         minHeight: 200,
         frame: false,
         transparent: true,
-        backgroundColor: '#00000000', // 투명도 안정성 확보
+        backgroundColor: '#00000000',
         alwaysOnTop: true,
+        show: false, // 창 준비 전까지 숨김
         icon: path.join(__dirname, 'icon.ico'),
         webPreferences: {
             nodeIntegration: true,
@@ -60,7 +66,12 @@ function createWindow() {
         }
     });
 
-    // 트레이 설정 추가
+    // 창이 준비되면 즉시 표시 (30초 지연 방지)
+    mainWindow.once('ready-to-show', () => {
+        mainWindow.show();
+    });
+
+    // 트레이 설정
     tray = new Tray(path.join(__dirname, 'icon.ico'));
     const contextMenu = Menu.buildFromTemplate([
         { label: 'StickyTask 보이기', click: () => mainWindow.show() },
@@ -73,18 +84,21 @@ function createWindow() {
 
     mainWindow.loadFile('index.html');
     
-    // 초기 로딩 시 로그인 상태 확인 및 테스크 목록 전송
+    // 비동기 데이터 로딩은 창이 뜨고 나서 진행
     mainWindow.webContents.on('did-finish-load', async () => {
-        const isLoggedIn = await googleTasks.initialize();
-        mainWindow.webContents.send('auth-status', isLoggedIn);
-        if (isLoggedIn) {
+        setTimeout(async () => {
             try {
-                const tasks = await googleTasks.listTasks();
-                mainWindow.webContents.send('tasks-data', tasks);
+                const handler = getTasksHandler();
+                const isLoggedIn = await handler.initialize();
+                mainWindow.webContents.send('auth-status', isLoggedIn);
+                if (isLoggedIn) {
+                    const tasks = await handler.listTasks();
+                    mainWindow.webContents.send('tasks-data', tasks);
+                }
             } catch (e) {
-                console.error('초기 태스크 로드 실패:', e);
+                console.error('데이터 초기 로딩 오류:', e);
             }
-        }
+        }, 100);
     });
 
     mainWindow.on('close', saveWindowState);
@@ -99,9 +113,10 @@ app.on('window-all-closed', () => {
 // IPC 핸들러: 로그인 요청
 ipcMain.on('google-login', async (event) => {
     try {
-        const success = await googleTasks.authenticate();
+        const handler = getTasksHandler();
+        const success = await handler.authenticate();
         if (success) {
-            const tasks = await googleTasks.listTasks();
+            const tasks = await handler.listTasks();
             event.sender.send('auth-status', true);
             event.sender.send('tasks-data', tasks);
         }
@@ -113,19 +128,19 @@ ipcMain.on('google-login', async (event) => {
 
 // IPC 핸들러: 태스크 관리
 ipcMain.handle('get-tasks', async () => {
-    return await googleTasks.listTasks();
+    return await getTasksHandler().listTasks();
 });
 
 ipcMain.handle('add-task', async (event, title) => {
-    return await googleTasks.addTask(title);
+    return await getTasksHandler().addTask(title);
 });
 
 ipcMain.handle('update-task', async (event, { taskId, completed }) => {
-    return await googleTasks.updateTask(taskId, completed);
+    return await getTasksHandler().updateTask(taskId, completed);
 });
 
 ipcMain.handle('delete-task', async (event, taskId) => {
-    return await googleTasks.deleteTask(taskId);
+    return await getTasksHandler().deleteTask(taskId);
 });
 
 ipcMain.on('close-app', () => {
