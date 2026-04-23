@@ -90,17 +90,24 @@ function createWindow() {
 
     mainWindow.loadFile('index.html');
     
-    // 비동기 데이터 로딩은 창이 뜨고 나서 진행
     mainWindow.webContents.on('did-finish-load', async () => {
         try {
             const isLoggedIn = await googleTasks.initialize();
-            mainWindow.webContents.send('auth-status', isLoggedIn);
             if (isLoggedIn) {
-                const tasks = await googleTasks.listTasks();
-                mainWindow.webContents.send('tasks-data', tasks);
+                try {
+                    const tasks = await googleTasks.listTasks();
+                    mainWindow.webContents.send('auth-status', true);
+                    mainWindow.webContents.send('tasks-data', tasks);
+                } catch (apiError) {
+                    console.error('API call failed during startup:', apiError.message);
+                    mainWindow.webContents.send('auth-status', false);
+                }
+            } else {
+                mainWindow.webContents.send('auth-status', false);
             }
         } catch (e) {
             console.error('데이터 초기 로딩 오류:', e);
+            mainWindow.webContents.send('auth-status', false);
         }
     });
 

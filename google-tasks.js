@@ -2,7 +2,6 @@ const { app, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
-const https = require('https');
 const url = require('url');
 const querystring = require('querystring');
 
@@ -17,30 +16,6 @@ class GoogleTasksHandler {
         this.server = null;
     }
 
-    /**
-     * 기본 https 요청 헬퍼
-     */
-    async _request(options, postData = null) {
-        return new Promise((resolve, reject) => {
-            const req = https.request(options, (res) => {
-                let data = '';
-                res.on('data', (chunk) => { data += chunk; });
-                res.on('end', () => {
-                    if (res.statusCode >= 200 && res.statusCode < 300) {
-                        resolve(data ? JSON.parse(data) : {});
-                    } else {
-                        reject(new Error(`API Error (${res.statusCode}): ${data}`));
-                    }
-                });
-            });
-            req.on('error', (e) => reject(e));
-            if (postData) {
-                req.write(typeof postData === 'string' ? postData : JSON.stringify(postData));
-            }
-            req.end();
-        });
-    }
-
     async initialize() {
         try {
             if (!fs.existsSync(CREDENTIALS_PATH)) return false;
@@ -50,7 +25,7 @@ class GoogleTasksHandler {
 
             if (fs.existsSync(TOKEN_PATH)) {
                 this.tokens = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf8'));
-                // 만료 체크 후 갱신 로직 필요 (여기서는 단순 로드)
+                // 만료 체크 후 갱신은 API 호출 시 401 에러를 받으면 처리합니다.
                 return true;
             }
         } catch (error) {
@@ -63,7 +38,10 @@ class GoogleTasksHandler {
      * 액세스 토큰 갱신
      */
     async refreshToken() {
-        if (!this.tokens || !this.tokens.refresh_token) return;
+        if (!this.tokens || !this.tokens.refresh_token) {
+            console.warn('refresh_token이 없습니다. 다시 로그인해야 합니다.');
+            throw new Error('No refresh token available');
+        }
 
         const postData = querystring.stringify({
             client_id: this.clientConfig.client_id,
@@ -72,19 +50,33 @@ class GoogleTasksHandler {
             grant_type: 'refresh_token',
         });
 
-        const options = {
-            hostname: 'oauth2.googleapis.com',
-            path: '/token',
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Content-Length': postData.length
-            }
-        };
+        try {
+            const response = await fetch('https://oauth2.googleapis.com/token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: postData
+            });
 
-        const newTokens = await this._request(options, postData);
-        this.tokens = { ...this.tokens, ...newTokens };
-        fs.writeFileSync(TOKEN_PATH, JSON.stringify(this.tokens));
+            if (!response.ok) {
+                const errText = await response.text();
+                if (errText.includes('invalid_grant')) {
+                    if (fs.existsSync(TOKEN_PATH)) fs.unlinkSync(TOKEN_PATH);
+                    this.tokens = null;
+                }
+                throw new Error(`Token refresh failed: ${response.status} ${errText}`);
+            }
+
+            const newTokens = await response.json();
+            // refresh_token이 응답에 없을 수 있으므로 기존 것 유지
+            this.tokens = { ...this.tokens, ...newTokens };
+            fs.writeFileSync(TOKEN_PATH, JSON.stringify(this.tokens));
+            return true;
+        } catch (error) {
+            console.error('Token refresh error:', error);
+            throw error;
+        }
     }
 
     async authenticate() {
@@ -119,17 +111,19 @@ class GoogleTasksHandler {
                             grant_type: 'authorization_code'
                         });
 
-                        const options = {
-                            hostname: 'oauth2.googleapis.com',
-                            path: '/token',
+                        const response = await fetch('https://oauth2.googleapis.com/token', {
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/x-www-form-urlencoded',
-                                'Content-Length': postData.length
-                            }
-                        };
+                            },
+                            body: postData
+                        });
 
-                        this.tokens = await this._request(options, postData);
+                        if (!response.ok) {
+                            throw new Error(`Auth failed: ${await response.text()}`);
+                        }
+
+                        this.tokens = await response.json();
                         fs.writeFileSync(TOKEN_PATH, JSON.stringify(this.tokens));
                         resolve(true);
                     }
@@ -145,22 +139,11 @@ class GoogleTasksHandler {
     /**
      * REST API 호출 (공통 인증 헤더 포함)
      */
-    async _get(path) {
-        try {
-            return await this._call('GET', path);
-        } catch (e) {
-            // 토큰 만료 시 1회 갱신 시도
-            await this.refreshToken();
-            return await this._call('GET', path);
-        }
-    }
-
-    async _call(method, path, body = null) {
+    async _call(method, path, body = null, isRetry = false) {
         if (!this.tokens) throw new Error('인증되지 않음');
         
+        const url = `https://tasks.googleapis.com/tasks/v1${path}`;
         const options = {
-            hostname: 'tasks.googleapis.com',
-            path: `/tasks/v1${path}`,
             method: method,
             headers: {
                 'Authorization': `Bearer ${this.tokens.access_token}`,
@@ -170,13 +153,35 @@ class GoogleTasksHandler {
 
         if (body) {
             options.headers['Content-Type'] = 'application/json';
+            options.body = JSON.stringify(body);
         }
 
-        return await this._request(options, body);
+        let response = await fetch(url, options);
+
+        // 401 Unauthorized일 경우 토큰 갱신 후 1회 재시도
+        if (response.status === 401 && !isRetry) {
+            console.log('Access token expired. Refreshing token...');
+            await this.refreshToken();
+            // 재시도 시 토큰이 갱신되었으므로 옵션의 헤더 업데이트
+            options.headers['Authorization'] = `Bearer ${this.tokens.access_token}`;
+            response = await fetch(url, options);
+        }
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API Error (${response.status}): ${errorText}`);
+        }
+
+        // 응답 본문이 없는 경우(DELETE 등) 빈 객체 반환
+        if (response.status === 204) {
+            return {};
+        }
+
+        return await response.json();
     }
 
     async listTasks() {
-        const data = await this._get('/lists/@default/tasks');
+        const data = await this._call('GET', '/lists/@default/tasks?showCompleted=true&showHidden=true');
         return data.items || [];
     }
 
@@ -186,7 +191,7 @@ class GoogleTasksHandler {
 
     async updateTask(taskId, completed) {
         const status = completed ? 'completed' : 'needsAction';
-        return await this._call('PATCH', `/lists/@default/tasks/${taskId}`, { status });
+        return await this._call('PATCH', `/lists/@default/tasks/${taskId}`, { id: taskId, status });
     }
 
     async deleteTask(taskId) {

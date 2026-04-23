@@ -1,0 +1,12 @@
+{
+  "appId": "com.mrsure.stickytask",
+  "appName": "StickyTask",
+  "webDir": "www",
+  "plugins": {
+    "SocialLogin": {
+      "google": {
+        "webClientId": "483808761580-0fq6c3inteb6man1eve5mg0fciehf2fl.apps.googleusercontent.com"
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">StickyTask</string>
+    <string name="title_activity_main">StickyTask</string>
+    <string name="package_name">com.mrsure.stickytask</string>
+    <string name="custom_url_scheme">com.mrsure.stickytask</string>
+</resources>
