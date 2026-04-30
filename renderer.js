@@ -118,7 +118,7 @@ function renderTasks() {
         li.innerHTML = `
             <div class="checkbox" onclick="toggleTask('${task.id}', ${isCompleted})"></div>
             <div class="task-text">${task.title}</div>
-            <div class="delete-task" onclick="deleteTask('${task.id}')">🗑</div>
+            <div class="delete-task" onclick="deleteTask('${task.id}', event)">🗑</div>
         `;
         
         taskList.appendChild(li);
@@ -135,6 +135,7 @@ async function addTask() {
         if (newTask) {
             googleTasks.unshift(newTask);
             taskInput.value = '';
+            taskInput.focus(); // 추가 후 포커스 유지
             renderTasks();
         }
     } catch (e) {
@@ -166,16 +167,31 @@ window.toggleTask = async function(taskId, currentStatus) {
 };
 
 // 할 일 삭제
-window.deleteTask = async function(taskId) {
-    if (!confirm('할 일을 삭제하시겠습니까?')) return;
+window.deleteTask = async function(taskId, event) {
+    // 이벤트 전파 방지
+    if (event) event.stopPropagation();
+    else if (window.event) window.event.stopPropagation();
+    
+    if (!confirm('할 일을 삭제하시겠습니까?')) {
+        // 취소 시에도 포커스 복구
+        taskInput.focus();
+        return;
+    }
     
     try {
         await ipcRenderer.invoke('delete-task', taskId);
         googleTasks = googleTasks.filter(t => t.id !== taskId);
         renderTasks();
+        
+        // 삭제 후 입력창에 포커스 강제 (DOM 렌더링 후 실행되도록 약간의 지연 추가)
+        setTimeout(() => {
+            taskInput.focus();
+        }, 10);
     } catch (e) {
         console.error('삭제 실패:', e);
+        taskInput.focus();
     }
 };
 
-// 초기 실행 (필요한 경우 메인에서 데이터 올 때까지 대기)
+// 초기 실행
+taskInput.focus();
