@@ -1,4 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Nanum+Pen+Script&display=swap');
+/* 외부 폰트 로딩 제거 (부팅 속도 최적화) */
+@font-face {
+    font-family: 'Nanum Pen Script';
+    src: local('Nanum Pen Script'), local('NanumPenScript');
+}
 
 :root {
     --sticky-bg: #fff176;
@@ -13,7 +17,7 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
-    font-family: 'Inter', 'Nanum Gothic', sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Nanum Gothic", sans-serif;
 }
 
 body {

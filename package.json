@@ -23,9 +23,9 @@
     },
     "files": [
       "**/*",
-      "!dist/*",
-      "!node_modules/*",
-      "node_modules/electron-store/**/*"
+      "!dist",
+      "!.vscode",
+      "!*.mjs"
     ]
   },
   "keywords": [],
